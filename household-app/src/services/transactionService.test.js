@@ -12,6 +12,7 @@ import {
   deleteManualTransaction,
   listTransactions,
   saveManualTransaction,
+  saveManualTransactions,
 } from './transactionService.js'
 
 test('database migration preserves old transactions, purchases, and master data', async (t) => {
@@ -213,4 +214,95 @@ test('manual transactions validate, persist, update, and protect purchase record
     (await db.transactions.get(purchaseTransaction.id)).purchaseId,
     purchase.id,
   )
+})
+
+test('manual transactions can be saved in bulk and validate each row atomically', async (t) => {
+  t.after(() => db.close())
+  await db.open()
+  await db.transactions.clear()
+  await db.settings.clear()
+  await addPeriod('2026-11')
+
+  const saved = await saveManualTransactions([
+    {
+      period: '2026-11',
+      description: '',
+      categoryName: '',
+      income: '',
+      expense: '',
+    },
+    {
+      period: '2026-11',
+      description: 'Gaji',
+      categoryName: '',
+      income: '1250000',
+      expense: '',
+    },
+    {
+      period: '2026-11',
+      description: 'Belanja',
+      categoryName: 'Konsumsi',
+      income: '',
+      expense: '85000',
+    },
+  ])
+
+  assert.equal(saved.length, 2)
+  assert.equal(await db.transactions.count(), 2)
+
+  assert.deepEqual(
+    await saveManualTransactions([
+      {
+        period: '2026-11',
+        description: '   ',
+        categoryName: '',
+        income: '',
+        expense: '',
+      },
+    ]),
+    [],
+  )
+  assert.equal(await db.transactions.count(), 2)
+
+  await assert.rejects(
+    saveManualTransactions([
+      {
+        period: '2026-11',
+        description: 'Transaksi valid sebelum baris invalid',
+        categoryName: '',
+        income: '100',
+        expense: '',
+      },
+      {
+        period: '2026-11',
+        description: 'Nilai ganda',
+        categoryName: '',
+        income: '100',
+        expense: '50',
+      },
+    ]),
+    /hanya boleh memiliki pemasukan atau pengeluaran/,
+  )
+  assert.equal(await db.transactions.count(), 2)
+
+  for (const amount of ['-100', '100.50', '1,000', '0']) {
+    await assert.rejects(
+      saveManualTransactions([
+        {
+          period: '2026-11',
+          description: 'Nominal tidak valid',
+          categoryName: '',
+          income: amount,
+          expense: '',
+        },
+      ]),
+      /Nominal/,
+    )
+  }
+
+  await assert.rejects(
+    saveManualTransactions([null]),
+    /Setiap baris transaksi harus berupa objek/,
+  )
+  assert.equal(await db.transactions.count(), 2)
 })

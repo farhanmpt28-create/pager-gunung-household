@@ -101,6 +101,108 @@ export async function saveManualTransaction(input) {
   )
 }
 
+export async function saveManualTransactions(inputs) {
+  if (!Array.isArray(inputs)) {
+    throw new TypeError('Daftar transaksi harus berupa array.')
+  }
+
+  for (const input of inputs) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) {
+      throw new TypeError('Setiap baris transaksi harus berupa objek.')
+    }
+  }
+
+  const nonEmptyInputs = inputs.filter((input) =>
+    [
+      input.description,
+      input.categoryName,
+      input.income,
+      input.expense,
+    ].some((value) =>
+      typeof value === 'string' ? value.trim() !== '' : value != null,
+    ),
+  )
+
+  if (nonEmptyInputs.length === 0) {
+    return []
+  }
+
+  const transactions = nonEmptyInputs.map((input) => {
+    const income = input.income
+    const expense = input.expense
+    const hasIncome =
+      typeof income === 'string' ? income.trim() !== '' : income != null
+    const hasExpense =
+      typeof expense === 'string' ? expense.trim() !== '' : expense != null
+
+    if (hasIncome && hasExpense) {
+      throw new TypeError(
+        'Satu baris hanya boleh memiliki pemasukan atau pengeluaran.',
+      )
+    }
+    if (!hasIncome && !hasExpense) {
+      throw new TypeError(
+        'Setiap transaksi harus memiliki nominal pemasukan atau pengeluaran.',
+      )
+    }
+
+    const amountText = hasIncome ? income : expense
+    if (
+      typeof amountText !== 'string' ||
+      !/^\d+$/.test(amountText.trim())
+    ) {
+      throw new TypeError(
+        'Nominal harus berupa bilangan Rupiah bulat yang valid.',
+      )
+    }
+
+    const amount = Number(amountText.trim())
+    return validateTransactionInput({
+      type: hasIncome ? 'income' : 'expense',
+      period: input.period,
+      amount,
+      categoryName: input.categoryName,
+      description: input.description,
+    })
+  })
+
+  return withDatabaseTransaction(
+    ['transactions', 'settings'],
+    async ({ transactions: transactionTable, settings }) => {
+      const periodAvailability = new Map()
+      await Promise.all(
+        [...new Set(transactions.map(({ period }) => period))].map(
+          async (period) => {
+            periodAvailability.set(
+              period,
+              Boolean(await settings.get(`period:${period}`)),
+            )
+          },
+        ),
+      )
+      const missingPeriod = transactions.find(
+        ({ period }) => !periodAvailability.get(period),
+      )
+      if (missingPeriod) {
+        throw new Error(
+          `Periode ${missingPeriod.period} belum tersedia. Tambahkan melalui Settings.`,
+        )
+      }
+
+      const now = new Date().toISOString()
+      const records = transactions.map((transaction) => ({
+        ...transaction,
+        source: 'manual',
+        purchaseId: null,
+        createdAt: now,
+        updatedAt: now,
+      }))
+      const keys = await transactionTable.bulkAdd(records, { allKeys: true })
+      return transactionTable.bulkGet(keys)
+    },
+  )
+}
+
 export async function deleteManualTransaction(id) {
   if (id === undefined || id === null) {
     throw new TypeError('ID transaksi wajib diisi.')

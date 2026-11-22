@@ -11,6 +11,7 @@ import Modal from './components/Modal.jsx'
 import {
   deleteManualTransaction,
   saveManualTransaction,
+  saveManualTransactions,
   subscribeTransactionData,
 } from './services/transactionService.js'
 import {
@@ -25,6 +26,13 @@ const EMPTY_FORM = {
   amount: '',
   categoryName: '',
   description: '',
+}
+
+const EMPTY_BULK_ROW = {
+  description: '',
+  categoryName: '',
+  income: '',
+  expense: '',
 }
 
 function formatCurrency(value) {
@@ -53,6 +61,9 @@ function Transactions({ onNavigateSettings }) {
   const [form, setForm] = useState(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState(null)
+  const [bulkRows, setBulkRows] = useState([{ ...EMPTY_BULK_ROW }])
+  const [bulkSaving, setBulkSaving] = useState(false)
+  const [bulkSuccess, setBulkSuccess] = useState('')
 
   useEffect(() => {
     const subscription = subscribeTransactionData(
@@ -99,19 +110,6 @@ function Transactions({ onNavigateSettings }) {
     [selectedPeriodFilter, transactions],
   )
 
-  function openCreateModal(type) {
-    setEditingTransaction(null)
-    setActionError('')
-    setForm({
-      ...EMPTY_FORM,
-      type,
-      period: periodOptions.some(({ value }) => value === selectedPeriodFilter)
-        ? selectedPeriodFilter
-        : periodOptions[0]?.value ?? '',
-    })
-    setModalOpen(true)
-  }
-
   function openEditModal(transaction) {
     setEditingTransaction(transaction)
     setActionError('')
@@ -128,6 +126,81 @@ function Transactions({ onNavigateSettings }) {
       description: transaction.description ?? '',
     })
     setModalOpen(true)
+  }
+
+  function updateBulkRow(index, field, value) {
+    setBulkSuccess('')
+    setBulkRows((current) =>
+      current.map((row, rowIndex) =>
+        rowIndex === index ? { ...row, [field]: value } : row,
+      ),
+    )
+  }
+
+  function addBulkRow() {
+    setBulkSuccess('')
+    setBulkRows((current) => [...current, { ...EMPTY_BULK_ROW }])
+  }
+
+  function removeBulkRow(index) {
+    setBulkSuccess('')
+    setBulkRows((current) =>
+      current.length === 1
+        ? [{ ...EMPTY_BULK_ROW }]
+        : current.filter((_, rowIndex) => rowIndex !== index),
+    )
+  }
+
+  const bulkTotals = useMemo(() => {
+    let income = 0
+    let expense = 0
+    for (const row of bulkRows) {
+      const incomeAmount = Number(row.income)
+      const expenseAmount = Number(row.expense)
+      const hasIncome = row.income.trim() !== ''
+      const hasExpense = row.expense.trim() !== ''
+      if (hasIncome && hasExpense) continue
+      if (
+        /^\d+$/.test(row.income.trim()) &&
+        Number.isSafeInteger(incomeAmount)
+      ) income += incomeAmount
+      if (
+        /^\d+$/.test(row.expense.trim()) &&
+        Number.isSafeInteger(expenseAmount)
+      ) expense += expenseAmount
+    }
+    return { income, expense, balance: income - expense }
+  }, [bulkRows])
+
+  async function handleBulkSubmit(event) {
+    event.preventDefault()
+    setActionError('')
+    setBulkSuccess('')
+
+    if (!selectedPeriodFilter) {
+      setActionError('Pilih periode sebelum menyimpan transaksi.')
+      return
+    }
+
+    setBulkSaving(true)
+    try {
+      const saved = await saveManualTransactions(
+        bulkRows.map((row) => ({
+          ...row,
+          period: selectedPeriodFilter,
+        })),
+      )
+      setBulkRows([{ ...EMPTY_BULK_ROW }])
+      setBulkSuccess(
+        saved.length
+          ? `${saved.length} transaksi berhasil disimpan.`
+          : 'Tidak ada baris transaksi yang diisi.',
+      )
+    } catch (error) {
+      setActionError(getErrorMessage(error))
+    } finally {
+      setBulkSaving(false)
+    }
   }
 
   async function handleSubmit(event) {
@@ -176,32 +249,13 @@ function Transactions({ onNavigateSettings }) {
           <h2>Transaksi</h2>
           <p>Catat uang masuk dan uang keluar rumah tangga.</p>
         </div>
-        <div className="transaction-create-actions">
-          <button
-            className="income-button"
-            disabled={!periodOptions.length}
-            onClick={() => openCreateModal('income')}
-            type="button"
-          >
-            <Plus aria-hidden="true" size={18} />
-            Uang Masuk
-          </button>
-          <button
-            className="primary-button"
-            disabled={!periodOptions.length}
-            onClick={() => openCreateModal('expense')}
-            type="button"
-          >
-            <Plus aria-hidden="true" size={18} />
-            Uang Keluar
-          </button>
-        </div>
       </div>
 
       <div className="transaction-history-toolbar">
         <label className="transaction-filter">
           <span>Bulan dan tahun</span>
           <select
+            disabled={bulkSaving}
             onChange={(event) => setPeriodFilter(event.target.value)}
             value={selectedPeriodFilter}
           >
@@ -215,6 +269,157 @@ function Transactions({ onNavigateSettings }) {
         </label>
       </div>
 
+      <section aria-label="Input transaksi massal" className="bulk-transaction-card">
+        <div className="bulk-transaction-header">
+          <div>
+            <h3>Catat Transaksi</h3>
+            <p>
+              {selectedPeriodFilter
+                ? `Periode ${formatPeriodLabel(selectedPeriodFilter)}`
+                : 'Pilih bulan dan tahun terlebih dahulu'}
+            </p>
+          </div>
+        </div>
+
+        {bulkSuccess && (
+          <p className="bulk-success" role="status">{bulkSuccess}</p>
+        )}
+
+        {actionError && !modalOpen && (
+          <p className="inline-error" role="alert">{actionError}</p>
+        )}
+
+        <form onSubmit={handleBulkSubmit}>
+          <div className="bulk-table-wrap">
+            <table className="bulk-transaction-table">
+              <thead>
+                <tr>
+                  <th>Nomor</th>
+                  <th>Keterangan</th>
+                  <th>Kategori</th>
+                  <th>Pemasukan</th>
+                  <th>Pengeluaran</th>
+                </tr>
+              </thead>
+              <tbody>
+                {bulkRows.map((row, index) => (
+                  <tr key={index}>
+                    <td className="bulk-row-number">
+                      <span>{index + 1}</span>
+                      <button
+                        aria-label={`Hapus baris ${index + 1}`}
+                        className="icon-button bulk-remove-row"
+                        disabled={bulkSaving}
+                        onClick={() => removeBulkRow(index)}
+                        title="Hapus baris"
+                        type="button"
+                      >
+                        <Trash2 aria-hidden="true" size={15} />
+                      </button>
+                    </td>
+                    <td>
+                      <input
+                        aria-label={`Keterangan baris ${index + 1}`}
+                        disabled={bulkSaving}
+                        maxLength={200}
+                        onChange={(event) =>
+                          updateBulkRow(index, 'description', event.target.value)
+                        }
+                        placeholder="Contoh: Belanja dapur"
+                        value={row.description}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        aria-label={`Kategori baris ${index + 1}`}
+                        disabled={bulkSaving}
+                        maxLength={100}
+                        onChange={(event) =>
+                          updateBulkRow(index, 'categoryName', event.target.value)
+                        }
+                        placeholder="Untuk pengeluaran"
+                        value={row.categoryName}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        aria-label={`Pemasukan baris ${index + 1}`}
+                        disabled={bulkSaving}
+                        inputMode="numeric"
+                        onChange={(event) =>
+                          updateBulkRow(index, 'income', event.target.value)
+                        }
+                        placeholder="0"
+                        type="text"
+                        value={row.income}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        aria-label={`Pengeluaran baris ${index + 1}`}
+                        disabled={bulkSaving}
+                        inputMode="numeric"
+                        onChange={(event) =>
+                          updateBulkRow(index, 'expense', event.target.value)
+                        }
+                        placeholder="0"
+                        type="text"
+                        value={row.expense}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="bulk-transaction-actions">
+            <button
+              className="secondary-button"
+              disabled={bulkSaving || !periodOptions.length}
+              onClick={addBulkRow}
+              type="button"
+            >
+              <Plus aria-hidden="true" size={17} />
+              Tambah Baris
+            </button>
+            <button
+              className="primary-button"
+              disabled={
+                bulkSaving ||
+                !periodOptions.length ||
+                !bulkRows.some((row) =>
+                  row.description.trim() ||
+                  row.categoryName.trim() ||
+                  row.income.trim() ||
+                  row.expense.trim(),
+                )
+              }
+              type="submit"
+            >
+              {bulkSaving ? 'Menyimpan...' : 'Simpan Semua Transaksi'}
+            </button>
+          </div>
+
+          <div className="bulk-totals" aria-live="polite">
+            <div>
+              <span>Total Pemasukan</span>
+              <strong className="income">{formatCurrency(bulkTotals.income)}</strong>
+            </div>
+            <div>
+              <span>Total Pengeluaran</span>
+              <strong className="expense">{formatCurrency(bulkTotals.expense)}</strong>
+            </div>
+            <div>
+              <span>Saldo Bersih</span>
+              <strong className={bulkTotals.balance >= 0 ? 'income' : 'expense'}>
+                {formatCurrency(bulkTotals.balance)}
+              </strong>
+            </div>
+          </div>
+        </form>
+      </section>
+
       {!periodOptions.length && (
         <div className="settings-period-prompt">
           <p>Tambahkan periode melalui Settings sebelum mencatat transaksi.</p>
@@ -226,9 +431,6 @@ function Transactions({ onNavigateSettings }) {
             Buka Settings
           </button>
         </div>
-      )}
-      {actionError && !modalOpen && (
-        <p className="inline-error" role="alert">{actionError}</p>
       )}
       {loadError && (
         <div className="error-panel" role="alert">
