@@ -75,9 +75,13 @@ export function calculateMonthlyFinancialSummary(transactions, period) {
       )
     : []
 
+  const totalIncome = sumTransactions(periodTransactions, 'income')
+  const totalExpense = sumTransactions(periodTransactions, 'expense')
+
   return {
-    totalIncome: sumTransactions(periodTransactions, 'income'),
-    totalExpense: sumTransactions(periodTransactions, 'expense'),
+    totalIncome,
+    totalExpense,
+    monthlyNetBalance: totalIncome - totalExpense,
     balance:
       sumTransactions(selectedYearTransactions, 'income') -
       sumTransactions(selectedYearTransactions, 'expense'),

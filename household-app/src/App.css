@@ -1026,6 +1026,11 @@
   width: 36px;
 }
 
+.dashboard-metric-card.net-balance .dashboard-metric-icon {
+  background: #edf7f2;
+  color: #1e7046;
+}
+
 .dashboard-metric-card.expense .dashboard-metric-icon {
   background: #fbefed;
   color: #b65b4d;
@@ -1368,6 +1373,14 @@
 .recent-transaction-type {
   color: #78867d;
   font-size: 10px;
+  white-space: nowrap;
+}
+
+.recent-transaction-amount-group {
+  align-items: flex-end;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   white-space: nowrap;
 }
 
@@ -1780,7 +1793,8 @@
     flex-basis: calc(100% - 48px);
   }
 
-  .recent-transaction-amount {
+  .recent-transaction-amount-group {
+    align-items: flex-start;
     margin-left: 44px;
   }
 
@@ -2163,6 +2177,21 @@
   overflow-wrap: anywhere;
 }
 
+.transaction-history-amount-group {
+  align-items: flex-end;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  white-space: nowrap;
+}
+
+.transaction-running-balance {
+  color: #718077;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
 .transaction-history-amount {
   font-size: 13px;
   text-align: right;
@@ -2183,7 +2212,7 @@
 
 @media (max-width: 900px) {
   .dashboard-metric-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -2219,6 +2248,12 @@
   .transaction-kind-icon {
     height: 34px;
     width: 34px;
+  }
+
+  .transaction-history-amount-group {
+    align-items: flex-start;
+    grid-column: 2;
+    grid-row: 2;
   }
 
   .transaction-history-amount {

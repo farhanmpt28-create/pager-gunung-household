@@ -95,20 +95,41 @@ function Transactions({ onNavigateSettings }) {
   )
     ? periodFilter
     : periodOptions[0]?.value ?? ''
-  const visibleTransactions = useMemo(
-    () =>
-      transactions
-        .filter(
-          (transaction) =>
-            getTransactionPeriod(transaction) === selectedPeriodFilter,
-        )
-        .sort(
-          (a, b) =>
-            (b.createdAt ?? '').localeCompare(a.createdAt ?? '') ||
-            b.id - a.id,
-        ),
-    [selectedPeriodFilter, transactions],
-  )
+  const visibleTransactions = useMemo(() => {
+    const filtered = transactions.filter(
+      (transaction) =>
+        getTransactionPeriod(transaction) === selectedPeriodFilter,
+    )
+
+    const chronological = [...filtered].sort(
+      (a, b) =>
+        (a.createdAt ?? '').localeCompare(b.createdAt ?? '') ||
+        (a.id ?? 0) - (b.id ?? 0),
+    )
+
+    let currentBalance = 0
+    const countedPurchases = new Set()
+    const withRunning = chronological.map((tx) => {
+      if (tx.type === 'income') {
+        currentBalance += tx.amount
+      } else {
+        if (tx.purchaseId != null) {
+          if (!countedPurchases.has(tx.purchaseId)) {
+            countedPurchases.add(tx.purchaseId)
+            currentBalance -= tx.amount
+          }
+        } else {
+          currentBalance -= tx.amount
+        }
+      }
+      return {
+        ...tx,
+        runningBalance: currentBalance,
+      }
+    })
+
+    return withRunning.reverse()
+  }, [selectedPeriodFilter, transactions])
 
   function openEditModal(transaction) {
     setEditingTransaction(transaction)
@@ -501,9 +522,16 @@ function Transactions({ onNavigateSettings }) {
                       {transaction.description}
                     </span>
                   </div>
-                  <strong className={`transaction-history-amount ${isIncome ? 'income' : 'expense'}`}>
-                    {isIncome ? '+' : '−'} {formatCurrency(transaction.amount)}
-                  </strong>
+                  <div className="transaction-history-amount-group">
+                    <strong className={`transaction-history-amount ${isIncome ? 'income' : 'expense'}`}>
+                      {isIncome ? '+' : '−'} {formatCurrency(transaction.amount)}
+                    </strong>
+                    {transaction.runningBalance != null && (
+                      <span className="transaction-running-balance">
+                        Saldo: {formatCurrency(transaction.runningBalance)}
+                      </span>
+                    )}
+                  </div>
                   {isPurchaseLinked ? (
                     <span className="managed-externally">
                       Transaksi pembelian lama

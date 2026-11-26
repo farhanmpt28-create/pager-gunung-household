@@ -4,6 +4,7 @@ import {
   ArrowRight,
   ArrowUpRight,
   CalendarDays,
+  Coins,
   Wallet,
 } from 'lucide-react'
 import {
@@ -78,15 +79,35 @@ function Dashboard({ onNavigateTransactions, onNavigateSettings }) {
     () => new Map(data.categories.map((category) => [category.id, category.name])),
     [data.categories],
   )
-  const history = useMemo(
-    () =>
-      [...summary.periodTransactions].sort(
-        (a, b) =>
-          (b.createdAt ?? '').localeCompare(a.createdAt ?? '') ||
-          b.id - a.id,
-      ),
-    [summary.periodTransactions],
-  )
+  const history = useMemo(() => {
+    const periodTransactions = summary.periodTransactions ?? []
+    const chronological = [...periodTransactions].sort(
+      (a, b) =>
+        (a.createdAt ?? '').localeCompare(b.createdAt ?? '') ||
+        (a.id ?? 0) - (b.id ?? 0),
+    )
+    let currentBalance = 0
+    const countedPurchases = new Set()
+    const withRunning = chronological.map((tx) => {
+      if (tx.type === 'income') {
+        currentBalance += tx.amount
+      } else {
+        if (tx.purchaseId != null) {
+          if (!countedPurchases.has(tx.purchaseId)) {
+            countedPurchases.add(tx.purchaseId)
+            currentBalance -= tx.amount
+          }
+        } else {
+          currentBalance -= tx.amount
+        }
+      }
+      return {
+        ...tx,
+        runningBalance: currentBalance,
+      }
+    })
+    return withRunning.reverse()
+  }, [summary.periodTransactions])
 
   return (
     <section className="dashboard-page">
@@ -121,12 +142,12 @@ function Dashboard({ onNavigateTransactions, onNavigateSettings }) {
       ) : (
         <>
           <div className="dashboard-metric-grid">
-            <article className="dashboard-metric-card balance">
+            <article className="dashboard-metric-card net-balance">
               <div className="dashboard-metric-icon">
-                <Wallet aria-hidden="true" size={19} />
+                <Coins aria-hidden="true" size={19} />
               </div>
-              <p>Saldo tahunan</p>
-              <strong>{formatCurrency(summary.balance)}</strong>
+              <p>Sisa saldo {selectedPeriod && <span>· {formatPeriodLabel(selectedPeriod)}</span>}</p>
+              <strong>{formatCurrency(summary.monthlyNetBalance ?? (summary.totalIncome - summary.totalExpense))}</strong>
             </article>
             <article className="dashboard-metric-card income">
               <div className="dashboard-metric-icon">
@@ -141,6 +162,13 @@ function Dashboard({ onNavigateTransactions, onNavigateSettings }) {
               </div>
               <p>Uang keluar {selectedPeriod && <span>· {formatPeriodLabel(selectedPeriod)}</span>}</p>
               <strong>{formatCurrency(summary.totalExpense)}</strong>
+            </article>
+            <article className="dashboard-metric-card balance">
+              <div className="dashboard-metric-icon">
+                <Wallet aria-hidden="true" size={19} />
+              </div>
+              <p>Saldo tahunan {selectedPeriod && <span>· {selectedPeriod.slice(0, 4)}</span>}</p>
+              <strong>{formatCurrency(summary.balance)}</strong>
             </article>
           </div>
 
@@ -249,9 +277,16 @@ function Dashboard({ onNavigateTransactions, onNavigateSettings }) {
                       <span className={`recent-transaction-type ${isIncome ? 'income' : 'expense'}`}>
                         {isIncome ? 'Masuk' : 'Keluar'}
                       </span>
-                      <strong className={`recent-transaction-amount ${isIncome ? 'income' : 'expense'}`}>
-                        {isIncome ? '+' : '−'} {formatCurrency(transaction.amount)}
-                      </strong>
+                      <div className="recent-transaction-amount-group">
+                        <strong className={`recent-transaction-amount ${isIncome ? 'income' : 'expense'}`}>
+                          {isIncome ? '+' : '−'} {formatCurrency(transaction.amount)}
+                        </strong>
+                        {transaction.runningBalance != null && (
+                          <span className="transaction-running-balance">
+                            Saldo: {formatCurrency(transaction.runningBalance)}
+                          </span>
+                        )}
+                      </div>
                     </article>
                   )
                 })}
