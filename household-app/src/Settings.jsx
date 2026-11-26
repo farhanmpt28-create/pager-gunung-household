@@ -1,5 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
-import { CalendarDays, Download, Plus, Trash2, Upload } from 'lucide-react'
+import {
+  CalendarDays,
+  Cloud,
+  Download,
+  Home,
+  Plus,
+  RefreshCw,
+  Trash2,
+  Upload,
+  User,
+} from 'lucide-react'
+import { useAuth } from './context/AuthContext.jsx'
+import {
+  migrateLocalDataToCloud,
+  syncHouseholdFromCloud,
+} from './services/syncService.js'
 import { TABLE_NAMES } from './database.js'
 import {
   createDatabaseBackup,
@@ -19,6 +34,7 @@ function getErrorMessage(error) {
 }
 
 function Settings() {
+  const { user, household, isConfigured } = useAuth()
   const [period, setPeriod] = useState(getCurrentPeriod)
   const [periods, setPeriods] = useState([])
   const [loading, setLoading] = useState(true)
@@ -30,7 +46,47 @@ function Settings() {
   const [backupBusy, setBackupBusy] = useState(false)
   const [pendingBackup, setPendingBackup] = useState(null)
   const [backupCounts, setBackupCounts] = useState(null)
+  const [cloudNotice, setCloudNotice] = useState('')
+  const [cloudError, setCloudError] = useState('')
+  const [cloudBusy, setCloudBusy] = useState(false)
   const backupFileInput = useRef(null)
+
+  async function handleCloudSync() {
+    if (!household?.id) return
+    setCloudBusy(true)
+    setCloudError('')
+    setCloudNotice('')
+    try {
+      await syncHouseholdFromCloud(household.id)
+      setCloudNotice('Sinkronisasi data cloud berhasil.')
+    } catch (err) {
+      setCloudError(`Gagal sinkronisasi: ${getErrorMessage(err)}`)
+    } finally {
+      setCloudBusy(false)
+    }
+  }
+
+  async function handleMigrateLocal() {
+    if (!household?.id) return
+    const confirmed = window.confirm(
+      'Apakah Anda ingin mengunggah seluruh data lokal yang tersimpan di browser sebelumnya ke akun Rumah Tangga ini?'
+    )
+    if (!confirmed) return
+
+    setCloudBusy(true)
+    setCloudError('')
+    setCloudNotice('')
+    try {
+      const res = await migrateLocalDataToCloud(household.id)
+      setCloudNotice(
+        `Migrasi berhasil! ${res.transactionsCount} transaksi dan ${res.categoriesCount} kategori telah diunggah ke Rumah Tangga ini.`
+      )
+    } catch (err) {
+      setCloudError(`Gagal migrasi: ${getErrorMessage(err)}`)
+    } finally {
+      setCloudBusy(false)
+    }
+  }
 
   useEffect(() => {
     const subscription = subscribePeriodData(
@@ -151,9 +207,64 @@ function Settings() {
       <div className="page-toolbar">
         <div>
           <h2>Settings</h2>
-          <p>Kelola bulan dan tahun yang tersedia untuk pencatatan.</p>
+          <p>Kelola akun, rumah tangga, dan periode pencatatan.</p>
         </div>
       </div>
+
+      {isConfigured && user && (
+        <section className="settings-panel cloud-account-panel">
+          <div className="dashboard-section-title">
+            <div>
+              <h3>Akun & Rumah Tangga</h3>
+              <p>Kelola akun Anda dan sinkronisasi data Rumah Tangga ke Cloud.</p>
+            </div>
+          </div>
+
+          <div className="account-details-grid">
+            <div className="account-detail-item">
+              <span className="label">Akun Pengguna:</span>
+              <strong className="value">{user.email}</strong>
+            </div>
+            <div className="account-detail-item">
+              <span className="label">Rumah Tangga Aktif:</span>
+              <strong className="value">{household?.name || 'Tidak ada'}</strong>
+            </div>
+            <div className="account-detail-item">
+              <span className="label">Status Cloud:</span>
+              <span className="status-badge connected">Tersambung ke Supabase</span>
+            </div>
+          </div>
+
+          {cloudNotice && <div className="backup-notice">{cloudNotice}</div>}
+          {cloudError && <div className="backup-error">{cloudError}</div>}
+
+          <div className="cloud-panel-actions">
+            <button
+              type="button"
+              className="primary-button"
+              onClick={handleCloudSync}
+              disabled={cloudBusy}
+            >
+              <RefreshCw
+                size={16}
+                className={cloudBusy ? 'spinning' : ''}
+              />
+              <span>{cloudBusy ? 'Memproses...' : 'Sinkronkan dengan Cloud'}</span>
+            </button>
+
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={handleMigrateLocal}
+              disabled={cloudBusy}
+              title="Unggah data yang pernah dicatat sebelum ada sistem login ke rumah tangga ini"
+            >
+              <Upload size={16} />
+              <span>Unggah Data Lokal Lama ke Rumah Tangga Ini</span>
+            </button>
+          </div>
+        </section>
+      )}
 
       <section aria-labelledby="add-period-heading" className="settings-panel">
         <div className="dashboard-section-title">

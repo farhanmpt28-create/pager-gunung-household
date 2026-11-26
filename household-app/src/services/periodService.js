@@ -1,5 +1,6 @@
 import { liveQuery } from 'dexie'
 import db from '../database.js'
+import { pushRecordToCloud } from './syncService.js'
 
 const PERIOD_PATTERN = /^(\d{4})-(0[1-9]|1[0-2])$/
 const PERIOD_SETTING_PREFIX = 'period:'
@@ -78,6 +79,7 @@ export async function addPeriod(period) {
     }
 
     await db.settings.add({ key, value: period })
+    pushRecordToCloud('settings', { key, value: period }, 'upsert').catch(console.error)
     return period
   })
 }
@@ -109,6 +111,7 @@ export async function deletePeriod(period) {
       }
 
       await db.settings.delete(key)
+      pushRecordToCloud('settings', { key }, 'delete').catch(console.error)
       return period
     },
   )

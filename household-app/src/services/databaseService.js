@@ -1,4 +1,5 @@
 import db, { TABLE_NAMES } from '../database.js'
+import { pushRecordToCloud } from './syncService.js'
 
 const tables = new Set(TABLE_NAMES)
 const createdAtTables = new Set([
@@ -62,7 +63,9 @@ export async function createRecord(tableName, record) {
   }
 
   const key = await table.add(value)
-  return table.get(key)
+  const result = await table.get(key)
+  pushRecordToCloud(tableName, result, 'upsert').catch(console.error)
+  return result
 }
 
 export async function updateRecord(tableName, id, changes) {
@@ -86,7 +89,9 @@ export async function updateRecord(tableName, id, changes) {
   }
 
   await table.update(id, value)
-  return table.get(id)
+  const result = await table.get(id)
+  pushRecordToCloud(tableName, result, 'upsert').catch(console.error)
+  return result
 }
 
 export async function deleteRecord(tableName, id) {
@@ -101,6 +106,7 @@ export async function deleteRecord(tableName, id) {
   }
 
   await table.delete(id)
+  pushRecordToCloud(tableName, existing, 'delete').catch(console.error)
   return existing
 }
 
@@ -136,10 +142,18 @@ export async function bulkCreateRecords(tableName, records) {
     return value
   })
 
-  return db.transaction('rw', table, async () => {
+  const results = await db.transaction('rw', table, async () => {
     const keys = await table.bulkAdd(values, { allKeys: true })
     return table.bulkGet(keys)
   })
+
+  if (Array.isArray(results)) {
+    for (const item of results) {
+      pushRecordToCloud(tableName, item, 'upsert').catch(console.error)
+    }
+  }
+
+  return results
 }
 
 export function withDatabaseTransaction(tableNames, operation, mode = 'rw') {
